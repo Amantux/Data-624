@@ -1,0 +1,639 @@
+---
+title: "Test"
+author: "AZM"
+date: "2024-07-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+install.packages("writexl")
+```
+
+```{r}
+library(tidyverse)
+library(skimr)
+library(DataExplorer)
+library(outliers)
+library(anomalize)
+library(readxl)
+library(dplyr)
+library(VIM)
+library(ggplot2)
+library(tidyr)
+library(tibble)
+library(ggcorrplot)
+library(corrplot)
+library(psych)
+library(caret)
+library(randomForest)
+library(e1071)
+library(gbm)
+library(xgboost)
+library(lightgbm)
+library(nnet)
+library(glmnet)
+library(writexl)
+```
+```{r}
+#Load Data
+data <- read_excel("source.xlsx", col_names = TRUE)
+data$`Brand Code` <- as.factor(data$`Brand Code`)
+glimpse(data) #Quick view data 
+```
+```{r}
+summary(data)
+```
+```{r}
+skim(data)
+```
+```{r}
+# Filter out rows without a Brand Code
+cleaned_data <- data %>%
+  filter(!is.na(`Brand Code`) & `Brand Code` != "")
+
+# Display the number of rows removed
+removed_rows <- nrow(data) - nrow(cleaned_data)
+print(paste("Number of rows removed:", removed_rows))
+```
+```{r}
+data_A <- data %>% filter(`Brand Code` == "A")
+data_A$`Brand Code` <- NULL
+data_B <- data %>% filter(`Brand Code` == "B")
+data_B$`Brand Code` <- NULL
+data_C <- data %>% filter(`Brand Code` == "C")
+data_C$`Brand Code` <- NULL
+data_D <- data %>% filter(`Brand Code` == "D")
+data_D$`Brand Code` <- NULL
+```
+```{r}
+data_imputed_a <- kNN(data_A, k = 5)
+
+# Remove the additional columns added by the kNN function
+data_imputed_a <- data_imputed_a[, 1:ncol(data_A)]
+data_imputed_b <- kNN(data_B, k = 5)
+# Remove the additional columns added by the kNN function
+data_imputed_b <- data_imputed_b[, 1:ncol(data_B)]
+data_imputed_c <- kNN(data_C, k = 5)
+
+# Remove the additional columns added by the kNN function
+data_imputed_c <- data_imputed_c[, 1:ncol(data_C)]
+
+data_imputed_d <- kNN(data_D, k = 5)
+
+# Remove the additional columns added by the kNN function
+data_imputed_d <- data_imputed_d[, 1:ncol(data_D)]
+
+# Check the structure of the imputed data
+str(data_imputed_a)
+
+# Display the first few rows of the imputed data
+head(data_imputed_D)
+summary(data_imputed_D)
+```
+```{r}
+identify_outliers <- function(df, columns) {
+  outlier_flags <- df
+  for (col in columns) {
+    Q1 <- quantile(df[[col]], 0.25, na.rm = TRUE)
+    Q3 <- quantile(df[[col]], 0.75, na.rm = TRUE)
+    IQR <- Q3 - Q1
+    lower_bound <- Q1 - 1.5 * IQR
+    upper_bound <- Q3 + 1.5 * IQR
+    outlier_flags[[col]] <- ifelse(df[[col]] < lower_bound | df[[col]] > upper_bound, TRUE, FALSE)
+  }
+  return(outlier_flags)
+}
+
+identify_outliers_class_d <- function(df, columns) {
+  outlier_flags <- df
+  for (col in columns) {
+    Q1 <- quantile(df[[col]], 0.05, na.rm = TRUE)
+    Q3 <- quantile(df[[col]], 0.95, na.rm = TRUE)
+    IQR <- Q3 - Q1
+    lower_bound <- Q1 - 1.5 * IQR
+    upper_bound <- Q3 + 1.5 * IQR
+    outlier_flags[[col]] <- ifelse(df[[col]] < lower_bound | df[[col]] > upper_bound, TRUE, FALSE)
+  }
+  return(outlier_flags)
+}
+
+process_outliers_class_d <- function(data_imputed) {
+  numeric_columns <- names(data_imputed)[sapply(data_imputed, is.numeric)]
+  outlier_flags <- identify_outliers_class_d(data_imputed, numeric_columns)
+  
+  # Remove outliers from numeric columns
+  data_cleaned <- data_imputed[!rowSums(outlier_flags[numeric_columns]),]
+  removed_rows <- data_imputed[rowSums(outlier_flags[numeric_columns]) > 0,]
+  
+  # Identify the reason for removal
+  removed_reasons <- outlier_flags[rowSums(outlier_flags[numeric_columns]) > 0,]
+  
+  list(data_cleaned = data_cleaned,
+       removed_rows = removed_rows,
+       removed_reasons = removed_reasons)
+}
+
+
+# Apply the function to each dataframe
+process_outliers <- function(data_imputed) {
+  numeric_columns <- names(data_imputed)[sapply(data_imputed, is.numeric)]
+  outlier_flags <- identify_outliers(data_imputed, numeric_columns)
+  
+  # Remove outliers from numeric columns
+  data_cleaned <- data_imputed[!rowSums(outlier_flags[numeric_columns]),]
+  removed_rows <- data_imputed[rowSums(outlier_flags[numeric_columns]) > 0,]
+  
+  # Identify the reason for removal
+  removed_reasons <- outlier_flags[rowSums(outlier_flags[numeric_columns]) > 0,]
+  
+  list(data_cleaned = data_cleaned,
+       removed_rows = removed_rows,
+       removed_reasons = removed_reasons)
+}
+
+result_a <- process_outliers(data_imputed_a)
+result_b <- process_outliers(data_imputed_b)
+result_c <- process_outliers(data_imputed_c)
+result_d <- process_outliers_class_d(data_imputed_d)
+```
+```{r}
+visualize_outliers <- function(removed_reasons) {
+  removed_reasons_long <- removed_reasons %>%
+    rownames_to_column(var = "Row") %>%
+    pivot_longer(cols = -Row, names_to = "Column", values_to = "Is_Outlier") %>%
+    filter(Is_Outlier == TRUE)
+  
+  outlier_counts <- removed_reasons_long %>%
+    group_by(Column) %>%
+    summarize(Count = n(), .groups = 'drop')
+  
+  ggplot(outlier_counts, aes(x = reorder(Column, -Count), y = Count)) +
+    geom_bar(stat = "identity", fill = "steelblue") +
+    theme_minimal() +
+    labs(title = "Count of Rows Removed Due to Outliers per Column",
+         x = "Column",
+         y = "Count of Rows Removed") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+# Visualize for each dataframe
+plot_a <- visualize_outliers(result_a$removed_reasons)
+plot_b <- visualize_outliers(result_b$removed_reasons)
+plot_c <- visualize_outliers(result_c$removed_reasons)
+plot_d <- visualize_outliers(result_d$removed_reasons)
+
+# Display plots
+plot_a
+plot_b
+plot_c
+plot_d
+```
+```{r}
+create_corr_plot <- function(data_cleaned, title) {
+  numeric_data <- data_cleaned %>% select_if(is.numeric)
+  corr_matrix <- cor(numeric_data, use = "complete.obs")
+  ggcorrplot(corr_matrix, hc.order = TRUE, type = "lower",
+             lab = TRUE, lab_size = 3, method="circle",
+             colors = c("tomato2", "white", "springgreen3"),
+             title = title, ggtheme = theme_minimal())
+}
+# Create correlation plots for each cleaned dataframe
+plot_corr_a <- create_corr_plot(result_a$data_cleaned, "Correlation Plot - Data A")
+plot_corr_b <- create_corr_plot(result_b$data_cleaned, "Correlation Plot - Data B")
+plot_corr_c <- create_corr_plot(result_c$data_cleaned, "Correlation Plot - Data C")
+plot_corr_d <- create_corr_plot(result_d$data_cleaned, "Correlation Plot - Data D")
+
+# Display the plots
+plot_corr_a
+plot_corr_b
+plot_corr_c
+plot_corr_d
+
+ggsave("correlation_plot_a.jpg", plot = plot_corr_a, device = "jpeg", width = 10, height = 10)
+ggsave("correlation_plot_b.jpg", plot = plot_corr_b, device = "jpeg", width = 10, height = 10)
+ggsave("correlation_plot_c.jpg", plot = plot_corr_c, device = "jpeg", width = 10, height = 10)
+ggsave("correlation_plot_d.jpg", plot = plot_corr_d, device = "jpeg", width = 10, height = 10)
+```
+```{r}
+analyze_and_clean_trends_exclude_PH <- function(data, threshold = 0.9) {
+  # Select numeric columns excluding PH
+  numeric_data <- data %>% select_if(is.numeric) %>% select(-PH)
+  
+  # Calculate correlation matrix
+  corr_matrix <- cor(numeric_data, use = "complete.obs")
+  
+  # Plot the correlation matrix
+  print(ggcorrplot(corr_matrix, hc.order = TRUE, type = "lower",
+                   lab = TRUE, lab_size = 3, method = "circle",
+                   colors = c("tomato2", "white", "springgreen3"),
+                   title = "Correlation Matrix", ggtheme = theme_minimal()))
+  
+  # Find highly correlated pairs
+  high_corr <- which(abs(corr_matrix) > threshold & abs(corr_matrix) < 1, arr.ind = TRUE)
+  
+  # Identify columns to remove
+  columns_to_remove <- unique(colnames(numeric_data)[high_corr[, 2]])
+  
+  # Print highly correlated pairs and columns to be removed
+  if (nrow(high_corr) > 0) {
+    cat("Highly correlated columns (correlation > ", threshold, "):\n", sep = "")
+    for (i in 1:nrow(high_corr)) {
+      cat(colnames(numeric_data)[high_corr[i, 1]], "and", colnames(numeric_data)[high_corr[i, 2]], 
+          "with correlation", round(corr_matrix[high_corr[i, 1], high_corr[i, 2]], 2), "\n")
+    }
+    cat("\nColumns to be removed:\n")
+    print(columns_to_remove)
+  } else {
+    cat("No highly correlated columns found with correlation >", threshold, "\n")
+  }
+  
+  # Remove identified columns from the original data
+  cleaned_data <- data %>% select(-one_of(columns_to_remove))
+  
+  # Update numeric data after removal
+  numeric_data_cleaned <- numeric_data %>% select(-one_of(columns_to_remove))
+  
+  # Perform PCA
+  nfactors <- min(ncol(numeric_data_cleaned), nrow(numeric_data_cleaned) - 1)
+  if (nfactors < 1) nfactors <- 1  # Ensure nfactors is at least 1
+  
+  pca <- principal(numeric_data_cleaned, nfactors = nfactors, rotate = "none")
+  
+  # Print PCA results
+  print(pca$values)
+  print(pca$loadings)
+  
+  # Plot PCA results
+  scree_plot <- ggplot(data.frame(Variance = pca$values, Component = seq_along(pca$values)), 
+                       aes(x = Component, y = Variance)) +
+    geom_line() +
+    geom_point() +
+    theme_minimal() +
+    labs(title = "Scree Plot", x = "Principal Component", y = "Variance Explained")
+  
+  print(scree_plot)
+  
+  return(list(cleaned_data = cleaned_data, correlation_matrix = corr_matrix, pca = pca))
+}
+
+```
+
+```{r}
+# Apply the function to cleaned data frames
+result_trends_a <- analyze_and_clean_trends_exclude_PH(result_a$data_cleaned)
+result_trends_b <- analyze_and_clean_trends_exclude_PH(result_b$data_cleaned)
+result_trends_c <- analyze_and_clean_trends_exclude_PH(result_c$data_cleaned)
+result_trends_d <- analyze_and_clean_trends_exclude_PH(result_d$data_cleaned)
+
+```
+
+```{r}
+cleaned_data_a <- result_trends_a$cleaned_data
+cleaned_data_b <- result_trends_b$cleaned_data
+cleaned_data_c <- result_trends_c$cleaned_data
+cleaned_data_d <- result_trends_d$cleaned_data
+```
+
+
+```{r}
+split_train_test_by_row <- function(data, train_ratio = 0.7, seed = 11111) {
+  set.seed(seed)  # For reproducibility
+  
+  # Create a random sample of row indices for the training set
+  train_indices <- sample(seq_len(nrow(data)), size = floor(train_ratio * nrow(data)))
+  
+  # Split the data
+  train_data <- data[train_indices, ]
+  test_data <- data[-train_indices, ]
+  
+  return(list(train_data = train_data, test_data = test_data))
+}
+```
+
+
+
+```{r}
+calculate_mape <- function(actual, predicted) {
+  #Quality Check
+  if(length(actual) != length(predicted)) {
+    stop("The length of actual and predicted values must be the same.")
+  }
+  
+  #Calculate MAPE
+  mape <- mean(abs((actual - predicted) / actual)) * 100
+  
+  return(mape)
+}
+```
+
+```{r}
+# Example: Use cleaned_data_a for demonstration
+split_result_a <- split_train_test_by_row(cleaned_data_a)
+train_data_a <- split_result_a$train_data
+test_data_a <- split_result_a$test_data
+
+
+split_result_b <- split_train_test_by_row(cleaned_data_b)
+train_data_b <- split_result_b$train_data
+test_data_b <- split_result_b$test_data
+
+split_result_c <- split_train_test_by_row(cleaned_data_c)
+train_data_c <- split_result_c$train_data
+test_data_c <- split_result_c$test_data
+
+split_result_d <- split_train_test_by_row(cleaned_data_d)
+train_data_d <- split_result_d$train_data
+test_data_d <- split_result_d$test_data
+```
+
+
+```{r}
+run_models <- function(train_data, test_data, response_var='PH') {
+  # Remove columns with zero variance
+  zero_var_cols <- nearZeroVar(train_data, saveMetrics = TRUE)
+  train_data <- train_data[, !zero_var_cols$nzv]
+  test_data <- test_data[, !names(test_data) %in% names(zero_var_cols)[zero_var_cols$nzv]]
+  
+  # Handle missing values (impute with median)
+  for (col in names(train_data)) {
+    if (any(is.na(train_data[[col]]))) {
+      train_data[[col]][is.na(train_data[[col]])] <- median(train_data[[col]], na.rm = TRUE)
+    }
+  }
+  for (col in names(test_data)) {
+    if (any(is.na(test_data[[col]]))) {
+      test_data[[col]][is.na(test_data[[col]])] <- median(test_data[[col]], na.rm = TRUE)
+    }
+  }
+  
+  # Ensure the feature names are the same in training and testing datasets
+  common_cols <- intersect(names(train_data), names(test_data))
+  train_data <- train_data[, common_cols]
+  test_data <- test_data[, common_cols]
+  
+  # Store data types of training data
+  data_types <- sapply(train_data, class)
+  
+  # Split data into features and target variable
+  x_train <- train_data[, !(names(train_data) %in% response_var)]
+  y_train <- train_data[[response_var]]
+  x_test <- test_data[, !(names(test_data) %in% response_var)]
+  y_test <- test_data[[response_var]]
+  
+  results <- list()
+  
+  # Linear Regression
+  lm_model <- train(as.formula(paste(response_var, "~ .")), data = train_data, method = "lm")
+  lm_predictions <- predict(lm_model, x_test)
+  lm_rmse <- RMSE(lm_predictions, y_test)
+  lm_mape <- calculate_mape(y_test, lm_predictions)
+  results$Linear_Regression <- list(RMSE = lm_rmse, MAPE = lm_mape, model=lm_model)
+  
+  # Random Forest
+  rf_model <- train(as.formula(paste(response_var, "~ .")), data = train_data, method = "rf")
+  rf_predictions <- predict(rf_model, x_test)
+  rf_rmse <- RMSE(rf_predictions, y_test)
+  rf_mape <- calculate_mape(y_test, rf_predictions)
+  results$Random_Forest <- list(RMSE = rf_rmse, MAPE = rf_mape, model=rf_model)
+  
+  # Support Vector Machine (SVM)
+  svm_model <- train(as.formula(paste(response_var, "~ .")), data = train_data, method = "svmRadial")
+  svm_predictions <- predict(svm_model, x_test)
+  svm_rmse <- RMSE(svm_predictions, y_test)
+  svm_mape <- calculate_mape(y_test, svm_predictions)
+  results$SVM <- list(RMSE = svm_rmse, MAPE = svm_mape, model=svm_model)
+  
+  # K-Nearest Neighbors (KNN)
+  knn_model <- train(as.formula(paste(response_var, "~ .")), data = train_data, method = "knn")
+  knn_predictions <- predict(knn_model, x_test)
+  knn_rmse <- RMSE(knn_predictions, y_test)
+  knn_mape <- calculate_mape(y_test, knn_predictions)
+  results$KNN <- list(RMSE = knn_rmse, MAPE = knn_mape, model = knn_model)
+  
+  # Gradient Boosting Machine (GBM)
+  gbm_model <- train(as.formula(paste(response_var, "~ .")), data = train_data, method = "gbm", verbose = FALSE)
+  gbm_predictions <- predict(gbm_model, x_test)
+  gbm_rmse <- RMSE(gbm_predictions, y_test)
+  gbm_mape <- calculate_mape(y_test, gbm_predictions)
+  results$GBM <- list(RMSE = gbm_rmse, MAPE = gbm_mape, model = gbm_model)
+  
+  # Elastic Net
+  enet_model <- train(as.formula(paste(response_var, "~ .")), data = train_data, method = "glmnet")
+  enet_predictions <- predict(enet_model, x_test)
+  enet_rmse <- RMSE(enet_predictions, y_test)
+  enet_mape <- calculate_mape(y_test, enet_predictions)
+  results$Elastic_Net <- list(RMSE = enet_rmse, MAPE = enet_mape, model = enet_model)
+  
+  # XGBoost
+  dtrain <- xgb.DMatrix(data.matrix(x_train), label = y_train)
+  xgb_model <- xgb.train(params = list(objective = "reg:squarederror", eval_metric = "rmse"), data = dtrain, nrounds = 100)
+  dtest <- xgb.DMatrix(data.matrix(x_test))
+  xgb_predictions <- predict(xgb_model, dtest)
+  xgb_rmse <- RMSE(xgb_predictions, y_test)
+  xgb_mape <- calculate_mape(y_test, xgb_predictions)
+  results$XGBoost <- list(RMSE = xgb_rmse, MAPE = xgb_mape, model = xgb_model)
+  
+  # LightGBM
+  dtrain <- lgb.Dataset(data.matrix(x_train), label = y_train)
+  dtest <- data.matrix(x_test)
+  params <- list(objective = "regression", metric = "rmse", predict_disable_shape_check = TRUE)
+  lightgbm_model <- lgb.train(params, dtrain, 100)
+  lightgbm_predictions <- predict(lightgbm_model, dtest)
+  lightgbm_rmse <- RMSE(lightgbm_predictions, y_test)
+  lightgbm_mape <- calculate_mape(y_test, lightgbm_predictions)
+  results$LightGBM <- list(RMSE = lightgbm_rmse, MAPE = lightgbm_mape, model = lightgbm_model)
+  
+  # Neural Network
+  nn_model <- train(as.formula(paste(response_var, "~ .")), data = train_data, method = "nnet", linout = TRUE, trace = FALSE)
+  nn_predictions <- predict(nn_model, x_test)
+  nn_rmse <- RMSE(nn_predictions, y_test)
+  nn_mape <- calculate_mape(y_test, nn_predictions)
+  results$Neural_Network <- list(RMSE = nn_rmse, MAPE = nn_mape, model = nn_model)
+  
+  # Ridge Regression
+  ridge_model <- train(as.formula(paste(response_var, "~ .")), data = train_data, method = "ridge")
+  ridge_predictions <- predict(ridge_model, x_test)
+  ridge_rmse <- RMSE(ridge_predictions, y_test)
+  ridge_mape <- calculate_mape(y_test, ridge_predictions)
+  results$Ridge_Regression <- list(RMSE = ridge_rmse, MAPE = ridge_mape, model = ridge_model)
+  
+  # Find model with lowest MAPE
+  min_mape_model <- names(which.min(sapply(results, function(x) x$MAPE)))
+  best_model <- results[[min_mape_model]]$model
+  
+  return(list(results = results, best_model = best_model, best_model_name = min_mape_model, columns_used = common_cols, data_types = data_types))
+}
+
+
+```
+
+```{r}
+response_var <- 'PH'
+results_a <- run_models(train_data_a, test_data_a)
+print(results_a)
+print(results_a$columns_used)
+```
+
+
+```{r}
+results_b <- run_models(train_data_b, test_data_b)
+print(results_b)
+```
+
+
+```{r}
+results_c <- run_models(train_data_c, test_data_c)
+print(results_c)
+train_data_c
+```
+
+
+```{r}
+results_d <- run_models(train_data_d, test_data_d)
+print(results_d)
+```
+Let's start with predictions
+```{r}
+prediction <- read_excel("prediction.xlsx", col_names = TRUE)
+prediction$`Brand Code` <- as.factor(prediction$`Brand Code`)
+prediction
+```
+Seeing as we are missing values in the brand code, were going to run a KNN algorith to effectively guess the brand code:
+```{r}
+prediction_without_PH <- prediction[, !names(prediction) %in% "PH"]
+prediction_imputed <- kNN(prediction_without_PH, k = 5)
+
+# Remove the additional columns added by the kNN function
+prediction_imputed <- prediction_imputed[, 1:ncol(data_A)]
+prediction_imputed
+```
+```{r}
+predict_with_best_model <- function(data_row, response_var='PH') {
+  # Check that 'Brand Code' column exists
+  if (!'Brand Code' %in% names(data_row)) {
+    stop("The data row must contain a 'Brand Code' column.")
+  }
+  
+  # Determine the dataset based on 'Brand Code'
+  brand_code <- data_row$`Brand Code`
+  
+  if (brand_code == 'A') {
+    best_model <- results_a$best_model
+    columns_used <- setdiff(results_a$columns_used, response_var)
+    data_types <- results_a$data_types
+  } else if (brand_code == 'B') {
+    best_model <- results_b$best_model
+    columns_used <- setdiff(results_b$columns_used, response_var)
+    data_types <- results_b$data_types
+  } else if (brand_code == 'C') {
+    best_model <- results_c$best_model
+    columns_used <- setdiff(results_c$columns_used, response_var)
+    data_types <- results_c$data_types
+  } else if (brand_code == 'D') {
+    best_model <- results_d$best_model
+    columns_used <- setdiff(results_d$columns_used, response_var)
+    data_types <- results_d$data_types
+  } else {
+    stop("Invalid 'Brand Code'. Use 'A', 'B', 'C', or 'D'.")
+  }
+  
+  # Check that the data_row contains all required columns
+  missing_columns <- setdiff(columns_used, names(data_row))
+  if (length(missing_columns) > 0) {
+    stop(paste("The following required columns are missing from the data_row:", paste(missing_columns, collapse = ", ")))
+  }
+  
+  # Ensure the columns are in the correct order and contain the right data types
+  data_row <- data_row[, columns_used]
+  for (col in columns_used) {
+    if (class(data_row[[col]]) != data_types[[col]]) {
+      stop(paste("Column", col, "is of type", class(data_row[[col]]), "but should be of type", data_types[[col]]))
+    }
+  }
+  
+  # Remove 'Brand Code' column from the prediction features
+  data_row <- data_row[, !names(data_row) %in% 'Brand Code']
+  
+  # Ensure data is in matrix format if required by the model
+  if (inherits(best_model, "xgb.Booster")) {
+    data_row <- xgb.DMatrix(data.matrix(data_row))
+    prediction <- predict(best_model, data_row)
+  } else if (inherits(best_model, "lgb.Booster")) {
+    data_row <- data.matrix(data_row)
+    prediction <- predict(best_model, data_row, params = list(predict_disable_shape_check = TRUE))
+  } else {
+    data_row <- as.data.frame(data_row)
+    prediction <- predict(best_model, data_row)
+  }
+  
+  return(prediction)
+}
+
+
+
+```
+
+
+```{r}
+split_dataframes <- split(prediction_imputed, prediction_imputed$`Brand Code`)
+brand_a_data <- split_dataframes[['A']]
+brand_b_data <- split_dataframes[['B']]
+brand_c_data <- split_dataframes[['C']]
+brand_d_data <- split_dataframes[['D']]
+brand_a_data$PH <- predict(results_a$best_model, brand_a_data)
+brand_b_data$PH <- predict(results_b$best_model, brand_b_data)
+brand_c_data$PH <- predict(results_c$best_model, brand_c_data)
+
+results_d$columns_used <- setdiff(results_d$columns_used, 'PH')
+filtered_brand_d_data <- brand_d_data %>%
+  select(all_of(results_d$columns_used))
+brand_d_data$PH <- predict(results_d$best_model, data.matrix(filtered_brand_d_data))
+```
+
+```{r}
+brand_a_data$index = rownames(brand_a_data)
+brand_b_data$index = rownames(brand_b_data)
+brand_c_data$index = rownames(brand_c_data)
+brand_d_data$index = rownames(brand_d_data)
+combined_data <- bind_rows(brand_a_data, brand_b_data, brand_c_data, brand_d_data)
+```
+
+
+```{r}
+prediction$index = rownames(prediction)
+prediction_final <- prediction %>%
+  left_join(select(combined_data, index, PH), by = "index", suffix = c("", ".a_data"))
+
+# Transfer the PH values from the joined column to the original PH column in prediction_imputed
+prediction_final <- prediction_final %>%
+  mutate(PH = coalesce(PH.a_data, PH)) %>%
+  select(-PH.a_data)%>%  
+  select(-index)
+prediction_final
+```
+```{r}
+summary_stats_imputed <- prediction_final %>%
+  group_by(`Brand Code`) %>%
+  summarise(
+    mean_PH = mean(PH, na.rm = TRUE),
+    median_PH = median(PH, na.rm = TRUE),
+  )
+
+summary_stats_raw <- data %>%
+  group_by(`Brand Code`) %>%
+  summarise(
+    mean_PH = mean(PH, na.rm = TRUE),
+    median_PH = median(PH, na.rm = TRUE),
+  )
+
+# Display the summary statistics
+print(summary_stats_raw)
+print(summary_stats_imputed)
+```
+```{r}
+write_xlsx(prediction_final, "prediction_final.xlsx")
+```
+
